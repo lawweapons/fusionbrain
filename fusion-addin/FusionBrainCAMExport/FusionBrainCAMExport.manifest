@@ -1,0 +1,13 @@
+{
+  "autodeskProduct": "Fusion",
+  "type": "script",
+  "id": "fusionbrain-cam-export",
+  "author": "Robert Bevis",
+  "description": {
+    "": "Export all CAM operations (tools, RPM, feeds, DOC, stepover) from the active Fusion document to a .fb.json file for FusionBrain RAG ingestion."
+  },
+  "version": "0.1.0",
+  "runOnStartup": false,
+  "supportedOS": "windows|mac",
+  "editEnabled": true
+}
