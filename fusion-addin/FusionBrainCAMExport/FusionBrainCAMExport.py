@@ -244,7 +244,7 @@ def run(_context):
             return
 
         # Multiple docs → ask user
-        active_has_cam = any(d.id == active_doc.id for d, _ in docs) if active_doc else False
+        active_has_cam = any(d.name == active_doc.name for d, _ in docs) if active_doc else False
         choice = ui.messageBox(
             f"Found {len(docs)} open document(s) with CAM data.\n\n"
             "YES = Export ALL of them to one folder.\n"
@@ -264,7 +264,7 @@ def run(_context):
             return
 
         # NO → just the active doc
-        target = next(((d, c) for d, c in docs if active_has_cam and d.id == active_doc.id), None)
+        target = next(((d, c) for d, c in docs if active_has_cam and d.name == active_doc.name), None)
         if not target:
             ui.messageBox(
                 "Active document has no CAM data. Switch to a CAM document first.",
