@@ -1,0 +1,46 @@
+# deps
+node_modules
+.pnp
+.pnp.js
+
+# build
+.next
+out
+dist
+build
+*.tsbuildinfo
+
+# env - NEVER COMMIT
+.env
+.env.local
+.env.*.local
+.env.production
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# editor
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# python
+__pycache__
+*.pyc
+.venv
+venv
+*.egg-info
+
+# ingest workspace
+ingest/downloads
+ingest/transcripts
+ingest/*.vtt
+ingest/tmp
+
+# misc
+coverage
+.turbo

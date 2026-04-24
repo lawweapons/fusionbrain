@@ -1,0 +1,20 @@
+# Auto-request review on every PR that touches these files/paths.
+# Security-sensitive and infrastructure-defining paths require Robert's review.
+
+# All files default to the owner
+*                                 @lawweapons
+
+# Security / auth / secrets
+middleware.ts                     @lawweapons
+lib/auth*.ts                      @lawweapons
+.env.example                      @lawweapons
+
+# CI and workflow configs
+.github/                          @lawweapons
+
+# Core RAG logic
+lib/retrieve.ts                   @lawweapons
+lib/answer.ts                     @lawweapons
+app/api/ask/route.ts              @lawweapons
+app/api/ingest/route.ts           @lawweapons
+lib/schema.sql                    @lawweapons
