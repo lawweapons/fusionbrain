@@ -1,23 +1,32 @@
-"""Shared helpers for FusionBrain ingest scripts: chunking, embedding, DB insert."""
+"""Shared helpers for FusionBrain ingest scripts.
+
+Two modes, auto-selected by env var:
+
+  1. API mode (set FB_API_URL + INGEST_TOKEN):
+     Sends raw chunks to the FusionBrain /api/ingest endpoint.
+     The server handles embeddings and DB insert.
+     Use this when running ingest from a non-server machine (residential IP)
+     — avoids YouTube bot detection which blocks most VPS/cloud IPs.
+
+  2. DB mode (set DATABASE_URL + VOYAGE_API_KEY):
+     Embeds locally via Voyage API and writes directly to Postgres.
+     Use this only when running on the FusionBrain VPS itself.
+"""
 from __future__ import annotations
 
 import os
 import time
 from typing import Iterable, List, Optional, Sequence
 
-import psycopg
 import requests
 from dotenv import load_dotenv
-from psycopg.types.json import Json
 
 load_dotenv()
 
-DB_URL = os.environ["DATABASE_URL"]
-VOYAGE_API_KEY = os.environ["VOYAGE_API_KEY"]
+EMBED_BATCH = 128
 VOYAGE_URL = "https://api.voyageai.com/v1/embeddings"
 VOYAGE_MODEL = "voyage-3-large"
 VOYAGE_DIM = 1024
-EMBED_BATCH = 128
 
 
 def chunk_by_words(text: str, size: int = 500, overlap: int = 75) -> List[str]:
@@ -36,7 +45,67 @@ def chunk_by_words(text: str, size: int = 500, overlap: int = 75) -> List[str]:
     return out
 
 
-def embed_batch(texts: Sequence[str], *, input_type: str = "document", max_retries: int = 5) -> List[List[float]]:
+def fmt_timestamp(seconds: float) -> str:
+    s = int(seconds)
+    if s >= 3600:
+        return f"{s // 3600}:{(s % 3600) // 60:02d}:{s % 60:02d}"
+    return f"{s // 60}:{s % 60:02d}"
+
+
+# ---------- API mode (recommended for most users) ----------
+
+def _post_via_api(
+    source_type: str,
+    source_name: str,
+    source_url: Optional[str],
+    rows: List[dict],
+) -> int:
+    base_url = os.environ["FB_API_URL"].rstrip("/")
+    token = os.environ["INGEST_TOKEN"]
+    payload = {
+        "source_type": source_type,
+        "source_name": source_name,
+        "source_url": source_url,
+        "chunks": [
+            {
+                "text": r["text"],
+                "chunk_index": r["chunk_index"],
+                "source_ref": r.get("source_ref"),
+                "metadata": r.get("metadata") or {},
+            }
+            for r in rows
+        ],
+    }
+    last_err: Optional[str] = None
+    for attempt in range(3):
+        try:
+            r = requests.post(
+                f"{base_url}/api/ingest",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=600,
+            )
+        except requests.RequestException as e:
+            last_err = str(e)
+            time.sleep(2**attempt)
+            continue
+        if r.status_code == 200:
+            return int(r.json().get("inserted_chunks", 0))
+        if r.status_code >= 500:
+            last_err = f"{r.status_code}: {r.text[:200]}"
+            time.sleep(2**attempt)
+            continue
+        raise RuntimeError(f"/api/ingest failed {r.status_code}: {r.text[:300]}")
+    raise RuntimeError(f"/api/ingest retries exhausted: {last_err}")
+
+
+# ---------- DB mode (server-side only) ----------
+
+def _embed_batch(texts: Sequence[str], max_retries: int = 5) -> List[List[float]]:
+    api_key = os.environ["VOYAGE_API_KEY"]
     if not texts:
         return []
     last_err: Optional[str] = None
@@ -44,14 +113,11 @@ def embed_batch(texts: Sequence[str], *, input_type: str = "document", max_retri
         try:
             r = requests.post(
                 VOYAGE_URL,
-                headers={
-                    "Authorization": f"Bearer {VOYAGE_API_KEY}",
-                    "Content-Type": "application/json",
-                },
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
                     "input": list(texts),
                     "model": VOYAGE_MODEL,
-                    "input_type": input_type,
+                    "input_type": "document",
                     "output_dimension": VOYAGE_DIM,
                 },
                 timeout=120,
@@ -63,42 +129,36 @@ def embed_batch(texts: Sequence[str], *, input_type: str = "document", max_retri
         if r.status_code == 200:
             return [d["embedding"] for d in r.json()["data"]]
         if r.status_code in (429, 500, 502, 503, 504):
-            wait = 2**attempt
-            print(f"  voyage {r.status_code}, retry in {wait}s")
-            time.sleep(wait)
+            time.sleep(2**attempt)
             last_err = f"{r.status_code}: {r.text[:200]}"
             continue
         raise RuntimeError(f"voyage error {r.status_code}: {r.text[:400]}")
     raise RuntimeError(f"voyage max retries exceeded: {last_err}")
 
 
-def embed_all(texts: Sequence[str], *, batch: int = EMBED_BATCH) -> List[List[float]]:
-    out: List[List[float]] = []
-    total = len(texts)
-    for i in range(0, total, batch):
-        slab = list(texts[i : i + batch])
-        out.extend(embed_batch(slab))
-        print(f"  embedded {min(i + batch, total)}/{total}")
-    return out
-
-
 def _vec_literal(v: Iterable[float]) -> str:
     return "[" + ",".join(f"{x:.7f}" for x in v) + "]"
 
 
-def insert_chunks(
+def _insert_via_db(
     source_type: str,
     source_name: str,
     source_url: Optional[str],
     rows: List[dict],
 ) -> int:
-    """rows: [{chunk_index:int, text:str, source_ref?:str, metadata?:dict}].
-    Embeddings are computed inside. ON CONFLICT DO NOTHING makes re-runs idempotent."""
-    if not rows:
-        return 0
-    embs = embed_all([r["text"] for r in rows])
+    import psycopg  # lazy import: not needed in API mode
+    from psycopg.types.json import Json
+
+    texts = [r["text"] for r in rows]
+    embs: List[List[float]] = []
+    total = len(texts)
+    for i in range(0, total, EMBED_BATCH):
+        slab = texts[i : i + EMBED_BATCH]
+        embs.extend(_embed_batch(slab))
+        print(f"  embedded {min(i + EMBED_BATCH, total)}/{total}")
+
     inserted = 0
-    with psycopg.connect(DB_URL) as conn:
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
         with conn.cursor() as cur:
             for r, emb in zip(rows, embs):
                 cur.execute(
@@ -125,8 +185,20 @@ def insert_chunks(
     return inserted
 
 
-def fmt_timestamp(seconds: float) -> str:
-    s = int(seconds)
-    if s >= 3600:
-        return f"{s // 3600}:{(s % 3600) // 60:02d}:{s % 60:02d}"
-    return f"{s // 60}:{s % 60:02d}"
+# ---------- Public dispatcher ----------
+
+def insert_chunks(
+    source_type: str,
+    source_name: str,
+    source_url: Optional[str],
+    rows: List[dict],
+) -> int:
+    """Upload chunks. Chooses mode based on env vars.
+
+    rows: [{chunk_index:int, text:str, source_ref?:str, metadata?:dict}]
+    """
+    if not rows:
+        return 0
+    if os.environ.get("FB_API_URL"):
+        return _post_via_api(source_type, source_name, source_url, rows)
+    return _insert_via_db(source_type, source_name, source_url, rows)

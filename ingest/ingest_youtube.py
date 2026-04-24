@@ -1,8 +1,11 @@
 """Ingest YouTube content (single video, playlist, or channel) into FusionBrain.
 
-Uses yt-dlp to fetch auto-generated English subtitles as VTT, parses word-level
-timestamps, and chunks transcripts into 500-word windows with 75-word overlap.
-Each chunk carries its start timestamp so citations link to the exact moment.
+Fetches transcripts via youtube-transcript-api (a separate endpoint that's more
+tolerant of automated access than yt-dlp's VTT download). Channel/playlist
+enumeration uses yt-dlp's --flat-playlist.
+
+Each transcript is chunked into 500-word windows with 75-word overlap, preserving
+the start timestamp of the first word so citations link to the exact moment.
 
 Usage:
   python ingest_youtube.py "https://www.youtube.com/watch?v=VIDID"
@@ -11,19 +14,30 @@ Usage:
 
 Optional flags:
   --limit N       Stop after N videos (useful for testing)
-  --out DIR       Directory to cache downloaded VTTs (default: ./transcripts)
+  --languages EN  Comma-separated transcript language prefs (default: en,en-US,en-GB)
 """
 from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import sys
-from pathlib import Path
+import time
 from typing import List, Optional, Tuple
 
-from common import chunk_by_words, fmt_timestamp, insert_chunks  # noqa: F401
+from common import fmt_timestamp, insert_chunks
+
+try:
+    from youtube_transcript_api import YouTubeTranscriptApi
+    from youtube_transcript_api._errors import (
+        NoTranscriptFound,
+        TranscriptsDisabled,
+        VideoUnavailable,
+        RequestBlocked,
+    )
+except ImportError as e:
+    print(f"Install youtube-transcript-api: pip install youtube-transcript-api\n{e}", file=sys.stderr)
+    sys.exit(2)
 
 
 def run_ytdlp_json(args: List[str]) -> dict:
@@ -38,12 +52,15 @@ def list_videos(url: str) -> List[dict]:
     data = run_ytdlp_json(["yt-dlp", "--flat-playlist", "-J", "--no-warnings", url])
     entries = data.get("entries") or []
     if not entries and data.get("id"):
-        # single video
-        return [{"id": data["id"], "title": data.get("title") or data["id"], "url": data.get("webpage_url") or url}]
+        return [{
+            "id": data["id"],
+            "title": data.get("title") or data["id"],
+            "url": data.get("webpage_url") or url,
+        }]
     out: List[dict] = []
     for e in entries:
         if e.get("_type") == "playlist":
-            # channel page returns nested playlists (Videos, Shorts, Live)
+            # channel page returns nested tabs (Videos, Shorts, Live)
             for v in e.get("entries") or []:
                 if v.get("id"):
                     out.append({
@@ -57,8 +74,7 @@ def list_videos(url: str) -> List[dict]:
                 "title": e.get("title") or e["id"],
                 "url": f"https://www.youtube.com/watch?v={e['id']}",
             })
-    # Dedupe by id
-    seen = set()
+    seen: set = set()
     unique: List[dict] = []
     for v in out:
         if v["id"] not in seen:
@@ -67,60 +83,27 @@ def list_videos(url: str) -> List[dict]:
     return unique
 
 
-def download_subs(video_id: str, out_dir: Path) -> Optional[Path]:
-    """Download auto-generated English VTT. Returns path or None if unavailable."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    url = f"https://www.youtube.com/watch?v={video_id}"
-    subprocess.run(
-        [
-            "yt-dlp",
-            "--skip-download",
-            "--write-auto-subs",
-            "--sub-lang", "en",
-            "--sub-format", "vtt",
-            "--no-warnings",
-            "-o", str(out_dir / "%(id)s.%(ext)s"),
-            url,
-        ],
-        capture_output=True, text=True,
-    )
-    for p in out_dir.glob(f"{video_id}*.vtt"):
-        return p
-    return None
+def fetch_transcript(video_id: str, languages: List[str]) -> Optional[List[Tuple[float, str]]]:
+    """Returns [(start_seconds, text)] or None if unavailable."""
+    api = YouTubeTranscriptApi()
+    try:
+        fetched = api.fetch(video_id, languages=languages)
+    except (TranscriptsDisabled, NoTranscriptFound, VideoUnavailable):
+        return None
+    except RequestBlocked as e:
+        print(f"  ⚠ request blocked — YouTube has flagged this IP: {e}")
+        return None
+    except Exception as e:
+        print(f"  ⚠ transcript fetch failed: {type(e).__name__} {e}")
+        return None
 
-
-TS_RE = re.compile(
-    r"(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+-->\s+\d{2}:\d{2}:\d{2}\.\d{3}"
-)
-TAG_RE = re.compile(r"<[^>]+>")
-
-
-def parse_vtt(path: Path) -> List[Tuple[float, str]]:
-    """Return [(start_seconds, cue_text)] with duplicates from rolling captions removed."""
-    text = path.read_text(encoding="utf-8", errors="replace")
-    lines = text.splitlines()
     cues: List[Tuple[float, str]] = []
-    seen_text: set = set()
-    i = 0
-    while i < len(lines):
-        m = TS_RE.match(lines[i])
-        if not m:
-            i += 1
-            continue
-        h, mm, s, ms = map(int, m.groups())
-        start = h * 3600 + mm * 60 + s + ms / 1000.0
-        i += 1
-        body_parts: List[str] = []
-        while i < len(lines) and lines[i].strip() != "":
-            body_parts.append(lines[i])
-            i += 1
-        raw = " ".join(body_parts)
-        cleaned = TAG_RE.sub("", raw)
-        cleaned = re.sub(r"\s+", " ", cleaned).strip()
-        if cleaned and cleaned not in seen_text:
-            seen_text.add(cleaned)
-            cues.append((start, cleaned))
-        i += 1
+    for snippet in fetched:
+        text = getattr(snippet, "text", "") or ""
+        start = float(getattr(snippet, "start", 0.0) or 0.0)
+        text = text.replace("\n", " ").strip()
+        if text:
+            cues.append((start, text))
     return cues
 
 
@@ -153,20 +136,15 @@ def chunk_transcript(
     return chunks
 
 
-def ingest_video(video: dict, out_dir: Path) -> int:
-    """Returns number of chunks inserted."""
+def ingest_video(video: dict, languages: List[str]) -> int:
     vid = video["id"]
     title = video["title"]
     url = video["url"]
     print(f"\n▶ {title}  ({vid})")
 
-    vtt = download_subs(vid, out_dir)
-    if not vtt:
-        print("  ⚠ no transcript available, skipping")
-        return 0
-    cues = parse_vtt(vtt)
+    cues = fetch_transcript(vid, languages)
     if not cues:
-        print("  ⚠ transcript empty after parsing, skipping")
+        print("  ⚠ no transcript available, skipping")
         return 0
 
     chunks = chunk_transcript(cues)
@@ -174,13 +152,13 @@ def ingest_video(video: dict, out_dir: Path) -> int:
         print("  ⚠ no chunks produced, skipping")
         return 0
 
-    # Prepend video title to each chunk text for retrieval context
+    # Prepend video title to each chunk's text for retrieval context
     for c in chunks:
         c["text"] = f"[Video: {title}] {c['text']}"
 
     inserted = insert_chunks(
         source_type="youtube",
-        source_name=title,
+        source_name=title[:400],
         source_url=url,
         rows=chunks,
     )
@@ -192,10 +170,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Ingest YouTube content into FusionBrain")
     ap.add_argument("url", help="video, playlist, or channel URL")
     ap.add_argument("--limit", type=int, default=None, help="stop after N videos")
-    ap.add_argument("--out", default="transcripts", help="cache dir for VTT files")
+    ap.add_argument("--languages", default="en,en-US,en-GB", help="transcript language prefs")
+    ap.add_argument("--sleep", type=float, default=1.0, help="seconds between videos (be polite)")
     args = ap.parse_args()
 
-    out_dir = Path(args.out)
+    languages = [s.strip() for s in args.languages.split(",") if s.strip()]
+
     videos = list_videos(args.url)
     if args.limit:
         videos = videos[: args.limit]
@@ -203,15 +183,17 @@ def main() -> int:
     print(f"Found {len(videos)} video(s)")
     total = 0
     skipped = 0
-    for v in videos:
+    for i, v in enumerate(videos):
         try:
-            n = ingest_video(v, out_dir)
+            n = ingest_video(v, languages)
             total += n
             if n == 0:
                 skipped += 1
         except Exception as e:
             print(f"  ✗ error on {v['id']}: {e}")
             skipped += 1
+        if i < len(videos) - 1 and args.sleep > 0:
+            time.sleep(args.sleep)
 
     print(
         f"\nDone. Inserted {total} chunks across {len(videos) - skipped} videos "
