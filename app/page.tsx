@@ -29,6 +29,7 @@ interface UserMessage {
 type Message = UserMessage | AssistantMessage;
 
 const SOURCE_FILTERS: { id: string; label: string }[] = [
+  { id: "fusion_cam", label: "My Fusion CAM" },
   { id: "youtube", label: "YouTube" },
   { id: "fusion_docs", label: "Autodesk Docs" },
   { id: "pdf", label: "PDF" },
