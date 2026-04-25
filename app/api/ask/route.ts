@@ -41,15 +41,17 @@ export async function POST(req: NextRequest) {
         ? body.filter_types
         : undefined;
 
-    let imagePayload: { base64: string; mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" } | undefined;
-    if (body.image?.startsWith("data:")) {
-      const m = body.image.match(/^data:([^;]+);base64,(.+)$/);
-      if (m && ALLOWED_IMG_TYPES.has(m[1])) {
-        imagePayload = {
-          mediaType: m[1] as "image/png" | "image/jpeg" | "image/gif" | "image/webp",
-          base64: m[2]
-        };
+    const imagePayloads: { base64: string; mediaType: AllowedImgType }[] = [];
+    if (Array.isArray(body.images)) {
+      for (const u of body.images) {
+        if (typeof u !== "string") continue;
+        const parsed = parseDataUrl(u);
+        if (parsed) imagePayloads.push(parsed);
       }
+    }
+    if (imagePayloads.length === 0 && typeof body.image === "string") {
+      const parsed = parseDataUrl(body.image);
+      if (parsed) imagePayloads.push(parsed);
     }
 
     // Step 1: rewrite the query (fix typos, expand abbreviations, detect intent + jobs)
