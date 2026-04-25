@@ -170,7 +170,7 @@ export default function Home() {
       <header className="border-b border-border bg-surface px-6 py-4 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">
-            Fusion<span className="text-accent">Brain</span>
+            Robert&apos;s Fusion<span className="text-accent">Brain</span>
           </h1>
           <p className="text-xs text-muted">CNC / CAM / Fusion 360 knowledge assistant</p>
         </div>

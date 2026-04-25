@@ -122,7 +122,7 @@ export default function BrowsePage() {
       <header className="border-b border-border bg-surface px-6 py-4 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">
-            Fusion<span className="text-accent">Brain</span> · Browse data
+            Robert&apos;s Fusion<span className="text-accent">Brain</span> · Browse data
           </h1>
           <p className="text-xs text-muted">Inspect what's been ingested. Copy any chunk or full source to clipboard.</p>
         </div>

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "FusionBrain",
-  description: "Personal CNC/CAM/Fusion 360 knowledge assistant",
+  title: "Robert's FusionBrain",
+  description: "Robert's personal CNC/CAM/Fusion 360 knowledge assistant",
   robots: { index: false, follow: false }
 };
 

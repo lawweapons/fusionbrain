@@ -172,7 +172,7 @@ export default function AdminPage() {
       <header className="border-b border-border bg-surface px-6 py-4 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">
-            Fusion<span className="text-accent">Brain</span> · Admin
+            Robert&apos;s Fusion<span className="text-accent">Brain</span> · Admin
           </h1>
           <p className="text-xs text-muted">Add data to the knowledge base</p>
         </div>
