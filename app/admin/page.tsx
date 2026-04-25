@@ -60,28 +60,101 @@ export default function AdminPage() {
     refreshStats();
   }, [refreshStats]);
 
-  const handleUpload = async (files: FileList | File[] | null) => {
-    if (!files || (files as FileList).length === 0) return;
+  // Recursively walk a FileSystemDirectoryEntry into a flat File list
+  const walkEntry = (entry: FileSystemEntry): Promise<File[]> => {
+    if (entry.isFile) {
+      return new Promise((resolve) => {
+        (entry as FileSystemFileEntry).file(
+          (f) => resolve([f]),
+          () => resolve([])
+        );
+      });
+    }
+    if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      const allEntries: FileSystemEntry[] = [];
+      const readBatch = (): Promise<void> =>
+        new Promise((resolve) => {
+          reader.readEntries(
+            (entries) => {
+              if (entries.length === 0) resolve();
+              else {
+                allEntries.push(...entries);
+                readBatch().then(resolve);
+              }
+            },
+            () => resolve()
+          );
+        });
+      return readBatch().then(async () => {
+        const nested = await Promise.all(allEntries.map(walkEntry));
+        return nested.flat();
+      });
+    }
+    return Promise.resolve([]);
+  };
+
+  // Upload files in HTTP batches of 25 so giant folders don't time out one giant request
+  const HTTP_UPLOAD_BATCH = 25;
+
+  const handleUpload = async (files: File[] | FileList | null) => {
+    if (!files) return;
+    const arr = Array.from(files as FileList | File[]);
+    if (arr.length === 0) return;
     setBusy(true);
     setResults([]);
-    const fd = new FormData();
-    for (const f of Array.from(files as FileList)) fd.append("files", f);
+    const allResults: FileResult[] = [];
     try {
-      const res = await fetch("/api/admin/upload", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      setResults(data.files ?? []);
-      await refreshStats();
+      for (let i = 0; i < arr.length; i += HTTP_UPLOAD_BATCH) {
+        const slab = arr.slice(i, i + HTTP_UPLOAD_BATCH);
+        const fd = new FormData();
+        for (const f of slab) fd.append("files", f);
+        const res = await fetch("/api/admin/upload", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+        allResults.push(...(data.files ?? []));
+        // Update results progressively so user sees progress
+        setResults([...allResults]);
+        await refreshStats();
+      }
     } catch (e) {
-      setResults([{ filename: "(upload)", status: "error", message: (e as Error).message }]);
+      allResults.push({ filename: "(upload)", status: "error", message: (e as Error).message });
+      setResults(allResults);
     } finally {
       setBusy(false);
     }
   };
 
-  const onDrop = (e: React.DragEvent) => {
+  const onDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setDragKind(null);
+    const items = e.dataTransfer?.items;
+    // Use the FileSystem API for folder support if available
+    if (items && items.length > 0 && typeof (items[0] as DataTransferItem & { webkitGetAsEntry?: () => FileSystemEntry | null }).webkitGetAsEntry === "function") {
+      setBusy(true);
+      setResults([{ filename: "(scanning folder...)", status: "ok", inserted_chunks: 0 }]);
+      const entries: FileSystemEntry[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const entry = (items[i] as DataTransferItem & { webkitGetAsEntry: () => FileSystemEntry | null }).webkitGetAsEntry();
+        if (entry) entries.push(entry);
+      }
+      try {
+        const nested = await Promise.all(entries.map(walkEntry));
+        const allFiles = nested.flat();
+        if (allFiles.length === 0) {
+          setResults([{ filename: "(folder scan)", status: "skipped", message: "no files found" }]);
+          setBusy(false);
+          return;
+        }
+        // Reset busy so handleUpload can re-set + show progress properly
+        setBusy(false);
+        handleUpload(allFiles);
+      } catch (err) {
+        setResults([{ filename: "(folder scan)", status: "error", message: (err as Error).message }]);
+        setBusy(false);
+      }
+      return;
+    }
     handleUpload(e.dataTransfer?.files ?? null);
   };
 
