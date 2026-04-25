@@ -64,6 +64,12 @@ export async function POST(req: NextRequest) {
       }));
     };
 
+    // Prefix source_name with the machine tag so the same filename across
+    // machines (e.g. 1001.nc on the Mini Mill vs the VF-4) stays distinct
+    // in the dedupe key and in citations.
+    const tagSourceName = (name: string): string =>
+      machineTag ? `[${machineTag}] ${name}` : name;
+
     const results: FileResult[] = [];
 
     for (const f of files) {
@@ -102,7 +108,7 @@ export async function POST(req: NextRequest) {
           }
           const { inserted_chunks } = await insertChunks({
             source_type: "pdf",
-            source_name: filename,
+            source_name: tagSourceName(filename),
             source_url: null,
             chunks: tagChunks(chunks),
           });
@@ -116,7 +122,7 @@ export async function POST(req: NextRequest) {
           }
           const { inserted_chunks } = await insertChunks({
             source_type: "markdown",
-            source_name: filename,
+            source_name: tagSourceName(filename),
             source_url: null,
             chunks: tagChunks(chunks),
           });
@@ -134,7 +140,7 @@ export async function POST(req: NextRequest) {
           }
           const { inserted_chunks } = await insertChunks({
             source_type: "gcode",
-            source_name: filename,
+            source_name: tagSourceName(filename),
             source_url: null,
             chunks: tagChunks(chunks),
           });
@@ -163,7 +169,7 @@ export async function POST(req: NextRequest) {
           }
           const { inserted_chunks } = await insertChunks({
             source_type: "fusion_cam",
-            source_name,
+            source_name: tagSourceName(source_name),
             source_url: null,
             chunks: tagChunks(chunks),
           });
