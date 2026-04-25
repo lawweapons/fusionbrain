@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 interface Citation {
   n: number;
@@ -166,14 +167,14 @@ export default function Home() {
 
   return (
     <div className="flex flex-col h-screen">
-      <header className="border-b border-border bg-surface px-6 py-4 flex items-center justify-between">
+      <header className="border-b border-border bg-surface px-6 py-4 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">
             Fusion<span className="text-accent">Brain</span>
           </h1>
           <p className="text-xs text-muted">CNC / CAM / Fusion 360 knowledge assistant</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           {SOURCE_FILTERS.map((f) => (
             <label
               key={f.id}
@@ -192,6 +193,13 @@ export default function Home() {
               {f.label}
             </label>
           ))}
+          <Link
+            href="/admin"
+            className="text-xs px-2.5 py-1 rounded-md border border-border bg-panel text-muted hover:text-text hover:border-accent ml-2"
+            title="Admin: add data to the knowledge base"
+          >
+            ⚙ Admin
+          </Link>
         </div>
       </header>
 

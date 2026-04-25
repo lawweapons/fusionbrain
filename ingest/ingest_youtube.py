@@ -39,6 +39,10 @@ except ImportError as e:
     print(f"Install youtube-transcript-api: pip install youtube-transcript-api\n{e}", file=sys.stderr)
     sys.exit(2)
 
+# Module-level cookie path; CLI sets this. youtube-transcript-api looks for
+# a `cookies` argument on the YouTubeTranscriptApi() constructor in 1.x.
+_COOKIES_PATH = None
+
 
 def run_ytdlp_json(args: List[str]) -> dict:
     res = subprocess.run(args, capture_output=True, text=True)
@@ -85,7 +89,7 @@ def list_videos(url: str) -> List[dict]:
 
 def fetch_transcript(video_id: str, languages: List[str]) -> Optional[List[Tuple[float, str]]]:
     """Returns [(start_seconds, text)] or None if unavailable."""
-    api = YouTubeTranscriptApi()
+    api = YouTubeTranscriptApi(cookie_path=_COOKIES_PATH) if _COOKIES_PATH else YouTubeTranscriptApi()
     try:
         fetched = api.fetch(video_id, languages=languages)
     except (TranscriptsDisabled, NoTranscriptFound, VideoUnavailable):
@@ -172,9 +176,19 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=None, help="stop after N videos")
     ap.add_argument("--languages", default="en,en-US,en-GB", help="transcript language prefs")
     ap.add_argument("--sleep", type=float, default=1.0, help="seconds between videos (be polite)")
+    ap.add_argument("--cookies", default=None, help="path to a Netscape-format cookies.txt for authenticated YouTube access")
     args = ap.parse_args()
 
     languages = [s.strip() for s in args.languages.split(",") if s.strip()]
+
+    global _COOKIES_PATH
+    if args.cookies:
+        from pathlib import Path as _P
+        if not _P(args.cookies).is_file():
+            print(f"cookies file not found: {args.cookies}", file=sys.stderr)
+            return 2
+        _COOKIES_PATH = args.cookies
+        print(f"Using cookies from {args.cookies}")
 
     videos = list_videos(args.url)
     if args.limit:
