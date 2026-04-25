@@ -32,33 +32,50 @@ If the user asks something outside CAM/CNC/Fusion/Haas, say this system's scope 
 
 const WALKTHROUGH_GUIDE = `
 
-**This is a walkthrough request.** Format your answer like this:
+**This is a walkthrough request.** Robert is still learning CAM — he wants enough detail to actually execute, not just a parameter dump. Format your answer like this:
 
 # {Job name / what we're cutting}
 
 ## Setup overview
-A 1-2 sentence summary of the strategy: stock material, fixturing approach, key operations.
+A 2-3 sentence summary: stock material, what machine, fixturing approach, key operation flow.
+
+## Pre-job calculations
+Numbers Robert needs **before** he starts cutting:
+- Target dimensions (e.g., "thread tenon OD = 0.490" for ½-28 class 2A — this is 0.500 nominal − 2 × thread depth")
+- Thread depth, pass count, infeed schedule (if threading)
+- Stock allowance for finishing
+- Z extents from work zero
+- Anything calculable from the cited program's geometry
+Show the math briefly, don't just give the answer. Cite where the inputs come from.
+
+## Setup & verification (before pressing cycle start)
+- How to hold the part (chuck jaws / collet / soft jaws — adapt to machine)
+- How to dial in zero / probe / indicate (X face vs OD, Z face)
+- What to verify: runout, length out of jaws, jaw pressure, fixture stability
+- Tool offsets / length comp setup
+Be concrete. Use cited setup parameters when available; general best-practice when not.
 
 ## Step-by-step
 
-For EACH operation in order (typically: 2D Adaptive → 2D Contour roughing → 2D Contour finishing → Drilling → Threading), produce a numbered section:
+For EACH operation in order, produce a numbered section:
 
 ### Step N — {Operation name (e.g., 2D Adaptive Clearing)}
 
 **Where in Fusion:** {exact UI path, e.g. "Manufacture workspace → Milling tab → 2D dropdown → 2D Adaptive Clearing"}
 
-**Tool:** {tool description, diameter, flutes, vendor + product ID if available — cite the passage}
+**What this operation does (1 sentence):** {plain English purpose}
 
-**Geometry tab — what to select:**
-- A bullet on what geometry/contour to pick in the dialog (general guidance is fine here, no citation needed)
+**Tool:** {tool description, diameter, flutes, vendor + product ID if available — cite the passage}
 
 **Tool tab — values to enter:**
 - Spindle: {RPM} [cite]
 - Cutting feed: {value} [cite]
-- Plunge feed: {value} [cite]
+- Plunge / entry feed: {value} [cite]
 - Coolant: {value} [cite]
 
-**Heights tab:** {clearance, retract, top, bottom — explain general rule of thumb if no specific value cited}
+**Geometry tab — what to select:** brief bullet list
+
+**Heights tab:** clearance / retract / top / bottom — use cited values when present, otherwise explain the rule of thumb
 
 **Passes tab:**
 - Optimal load / stepover: {value} [cite]
@@ -66,17 +83,30 @@ For EACH operation in order (typically: 2D Adaptive → 2D Contour roughing → 
 - Stock to leave: {value} [cite]
 - Ramp type: {value} [cite]
 
-**Linking tab:** {entry/exit, lead-in, ramp angle if relevant — general guidance ok}
+**Linking tab:** entry/exit / lead-in / ramp angle — general guidance ok
 
-**Why this operation in this position:** one short sentence explaining its job in the strategy.
+## In-process verification
+What to check WHILE cutting, between operations, or before final passes:
+- When to gauge thread (GO/NO-GO between passes once close to depth)
+- When to mic / measure OD
+- Sound and chip cues that say "this is wrong, stop"
+- Tolerances Robert should be hitting
 
----
+## Common mistakes to avoid
+3-5 specific things that go wrong on this kind of job:
+- Material-specific gotchas (galling on stainless, chip welding on aluminum, etc.)
+- Sequence errors (threading before final OD = bad thread form)
+- Setup errors that look fine until a part is scrapped
+Cite where you can; otherwise write from CAM/CNC fundamentals.
+
+## G/M code translation
+The first time the answer references a G or M code from a cited program, translate it inline (e.g., "G50 S2000 = clamp max spindle to 2000 RPM during constant-surface-speed mode"). Don't translate every line — just the codes a learning machinist might not know.
 
 ## Final notes
-- Mention any operation-order dependencies, fixturing changes, work offset notes
-- Mention what would be different if scaling to a related material/size — but only with cited support
+- Operation-order dependencies, fixturing changes between ops, work offset shifts
+- Scaling notes — if Robert wants to use this on a related size/material, what changes and what stays. Cite specifically.
 
-Use bold for tool names and section labels. Use \`code\` formatting only for actual Fusion menu/button names. Keep prose minimal between numbered steps — Robert prefers reference-table-style answers he can act on.`;
+**Style:** Bold tool names and section labels. Backticks only for actual menu/button names. Keep prose tight — reference-table-style — but don't skip the calculation math, the verification gates, or the "why" sentences. Robert WANTS this level of detail.`;
 
 const COMPARE_GUIDE = `
 

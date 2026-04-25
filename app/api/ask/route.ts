@@ -45,11 +45,14 @@ export async function POST(req: NextRequest) {
     // Step 1: rewrite the query (fix typos, expand abbreviations, detect intent + jobs)
     const rewritten = await rewriteQuery(question);
 
+    // Walkthroughs benefit from more context (specific job + general theory blends well)
+    const effectiveTopK = rewritten.intent === "walkthrough" ? Math.max(topK, 18) : topK;
+
     // Step 2: hybrid retrieval — vector search + keyword search on detected job names
     const chunks = await retrieve({
       searchQuery: rewritten.search_query,
       keywordTerms: rewritten.keyword_terms,
-      topK,
+      topK: effectiveTopK,
       filterTypes,
     });
 
