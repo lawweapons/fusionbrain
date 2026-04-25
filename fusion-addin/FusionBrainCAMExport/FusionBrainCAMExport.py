@@ -12,8 +12,28 @@ import adsk.core
 import adsk.cam
 import adsk.fusion
 import json
+import os
 import traceback
 from datetime import datetime, timezone
+from pathlib import Path
+
+
+def _default_export_dir() -> str:
+    """Return a default folder for .fb.json files. Tries OneDrive Documents first
+    (Robert's setup), falls back to Documents, then home. Creates the folder."""
+    home = Path.home()
+    candidates = [
+        home / "OneDrive" / "Documents" / "fusion-cam-exports",
+        home / "Documents" / "fusion-cam-exports",
+        home / "fusion-cam-exports",
+    ]
+    for c in candidates:
+        try:
+            c.mkdir(parents=True, exist_ok=True)
+            return str(c)
+        except Exception:
+            continue
+    return str(home)
 
 
 def _safe_param_dict(parameters_collection):
@@ -170,6 +190,8 @@ def _export_single(ui, cam, doc_name: str) -> tuple[int, str]:
     dlg = ui.createFileDialog()
     dlg.title = "Save FusionBrain CAM export"
     dlg.filter = "FusionBrain JSON (*.fb.json)"
+    default_dir = _default_export_dir()
+    dlg.initialDirectory = default_dir
     dlg.initialFilename = f"{_safe_filename(doc_name)}.fb.json"
     if dlg.showSave() != adsk.core.DialogResults.DialogOK:
         return -1, ""
@@ -184,6 +206,7 @@ def _export_batch(ui, app, docs_with_cam) -> str:
     """Batch flow: prompt for an output folder, write one .fb.json per doc."""
     folder_dlg = ui.createFolderDialog()
     folder_dlg.title = "Pick folder to save all .fb.json files"
+    folder_dlg.initialDirectory = _default_export_dir()
     if folder_dlg.showDialog() != adsk.core.DialogResults.DialogOK:
         return ""
     out_dir = folder_dlg.folder
