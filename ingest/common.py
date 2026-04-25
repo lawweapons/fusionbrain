@@ -54,14 +54,17 @@ def fmt_timestamp(seconds: float) -> str:
 
 # ---------- API mode (recommended for most users) ----------
 
-def _post_via_api(
+HTTP_BATCH = 100  # chunks per /api/ingest call (avoid request body size limits)
+
+
+def _post_one_batch(
+    base_url: str,
+    token: str,
     source_type: str,
     source_name: str,
     source_url: Optional[str],
     rows: List[dict],
 ) -> int:
-    base_url = os.environ["FB_API_URL"].rstrip("/")
-    token = os.environ["INGEST_TOKEN"]
     payload = {
         "source_type": source_type,
         "source_name": source_name,
@@ -100,6 +103,26 @@ def _post_via_api(
             continue
         raise RuntimeError(f"/api/ingest failed {r.status_code}: {r.text[:300]}")
     raise RuntimeError(f"/api/ingest retries exhausted: {last_err}")
+
+
+def _post_via_api(
+    source_type: str,
+    source_name: str,
+    source_url: Optional[str],
+    rows: List[dict],
+) -> int:
+    """POST chunks in HTTP batches to avoid hitting request body size limits on
+    the server. Server-side dedupe (UNIQUE on source_type+source_name+chunk_index)
+    means re-runs are safe."""
+    base_url = os.environ["FB_API_URL"].rstrip("/")
+    token = os.environ["INGEST_TOKEN"]
+    total = 0
+    for i in range(0, len(rows), HTTP_BATCH):
+        slab = rows[i : i + HTTP_BATCH]
+        total += _post_one_batch(base_url, token, source_type, source_name, source_url, slab)
+        if len(rows) > HTTP_BATCH:
+            print(f"    posted {min(i + HTTP_BATCH, len(rows))}/{len(rows)} chunks")
+    return total
 
 
 # ---------- DB mode (server-side only) ----------
