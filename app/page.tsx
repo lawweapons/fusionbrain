@@ -31,10 +31,10 @@ type Message = UserMessage | AssistantMessage;
 
 const SOURCE_FILTERS: { id: string; label: string }[] = [
   { id: "fusion_cam", label: "My Fusion CAM" },
+  { id: "gcode", label: "G-code (machine)" },
   { id: "youtube", label: "YouTube" },
   { id: "fusion_docs", label: "Autodesk Docs" },
   { id: "pdf", label: "PDF" },
-  { id: "json", label: "CAM JSON" },
   { id: "markdown", label: "Markdown" }
 ];
 

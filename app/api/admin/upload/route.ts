@@ -3,6 +3,7 @@ import { insertChunks } from "@/lib/insert";
 import { parsePdfToChunks, looksScanned } from "@/lib/parsers/pdf";
 import { parseMarkdownToChunks } from "@/lib/parsers/markdown";
 import { parseFusionCamJson, type FusionCamExport } from "@/lib/parsers/fusion_cam";
+import { parseGcodeToChunks } from "@/lib/parsers/gcode";
 import { requireBasicAuth } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -16,11 +17,21 @@ interface FileResult {
   message?: string;
 }
 
-function detectKind(filename: string): "pdf" | "markdown" | "fusion_cam" | "unknown" {
+function detectKind(filename: string): "pdf" | "markdown" | "fusion_cam" | "gcode" | "unknown" {
   const f = filename.toLowerCase();
   if (f.endsWith(".pdf")) return "pdf";
   if (f.endsWith(".md") || f.endsWith(".markdown")) return "markdown";
-  if (f.endsWith(".fb.json") || f.endsWith(".json")) return "fusion_cam";
+  if (f.endsWith(".fb.json")) return "fusion_cam";
+  if (
+    f.endsWith(".nc") ||
+    f.endsWith(".tap") ||
+    f.endsWith(".ngc") ||
+    f.endsWith(".gcode") ||
+    f.endsWith(".min") ||
+    f.endsWith(".cnc")
+  )
+    return "gcode";
+  if (f.endsWith(".json")) return "fusion_cam"; // generic .json — try as Fusion CAM export
   return "unknown";
 }
 
@@ -49,7 +60,7 @@ export async function POST(req: NextRequest) {
           results.push({
             filename,
             status: "skipped",
-            message: "unsupported extension (use .pdf, .md, .fb.json)",
+            message: "unsupported extension (use .pdf, .md, .fb.json, .nc/.tap/.ngc/.gcode/.min/.cnc)",
           });
           continue;
         }
@@ -86,6 +97,24 @@ export async function POST(req: NextRequest) {
           }
           const { inserted_chunks } = await insertChunks({
             source_type: "markdown",
+            source_name: filename,
+            source_url: null,
+            chunks,
+          });
+          results.push({ filename, status: "ok", inserted_chunks });
+        } else if (kind === "gcode") {
+          const text = buffer.toString("utf8");
+          const { chunks, operationCount } = parseGcodeToChunks(text, filename);
+          if (chunks.length === 0) {
+            results.push({
+              filename,
+              status: "skipped",
+              message: `no operations parsed from ${operationCount === 0 ? "empty file" : "unrecognized format"}`,
+            });
+            continue;
+          }
+          const { inserted_chunks } = await insertChunks({
+            source_type: "gcode",
             source_name: filename,
             source_url: null,
             chunks,

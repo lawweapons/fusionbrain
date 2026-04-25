@@ -18,6 +18,7 @@ interface FileResult {
 
 const SOURCE_LABEL: Record<string, string> = {
   fusion_cam: "Fusion CAM",
+  gcode: "G-code (machine)",
   pdf: "PDF",
   markdown: "Markdown",
   youtube: "YouTube",
@@ -42,6 +43,7 @@ export default function AdminPage() {
   const pdfInput = useRef<HTMLInputElement>(null);
   const mdInput = useRef<HTMLInputElement>(null);
   const fbInput = useRef<HTMLInputElement>(null);
+  const gcodeInput = useRef<HTMLInputElement>(null);
 
   const refreshStats = useCallback(async () => {
     try {
@@ -213,6 +215,32 @@ export default function AdminPage() {
             "  4. Click 'All scripts and add-ins' → find FusionBrainCAMExport → click ▶ Run",
             "  5. (Multi-tab) Pick 'Yes' to export all open documents to a folder",
             "  6. Drag the resulting .fb.json file(s) onto this drop zone",
+          ]}
+        />
+
+        {/* G-code section */}
+        <UploadSection
+          kind="gcode"
+          title="🏭 G-code (from the machine)"
+          description="The actual NC programs that ran on your Haas. Each operation is parsed out — tool number, spindle RPM, feed rate, comments — and indexed alongside an excerpt of the code itself."
+          accept=".nc,.tap,.ngc,.gcode,.min,.cnc"
+          inputRef={gcodeInput}
+          dragKind={dragKind}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onChange={handleUpload}
+          busy={busy}
+          help={[
+            "How to copy from a Haas machine to FusionBrain:",
+            "  1. At the Haas controller: List Programs → select your program",
+            "  2. Press F2 (Copy to USB) or use 'Save All' to USB drive",
+            "  3. Plug the USB into your PC; copy the .nc files (or .tap/.ngc/.min depending on post)",
+            "  4. Drag them onto this drop zone",
+            "",
+            "Why this is valuable: G-code shows what actually ran, including any manual edits",
+            "you made at the controller. Combined with the Fusion CAM export, you have both",
+            "what was programmed AND what actually cut the part.",
           ]}
         />
 
