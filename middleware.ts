@@ -34,5 +34,10 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"]
+  // Exclude /api/admin/* — those routes do their own Basic Auth check inside
+  // the handler, because routing them through middleware imposes a 10MB body
+  // limit that breaks file uploads.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|api/admin|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"
+  ]
 };

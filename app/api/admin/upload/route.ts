@@ -3,6 +3,7 @@ import { insertChunks } from "@/lib/insert";
 import { parsePdfToChunks, looksScanned } from "@/lib/parsers/pdf";
 import { parseMarkdownToChunks } from "@/lib/parsers/markdown";
 import { parseFusionCamJson, type FusionCamExport } from "@/lib/parsers/fusion_cam";
+import { requireBasicAuth } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,8 @@ function detectKind(filename: string): "pdf" | "markdown" | "fusion_cam" | "unkn
 }
 
 export async function POST(req: NextRequest) {
+  const unauth = requireBasicAuth(req);
+  if (unauth) return unauth;
   try {
     const formData = await req.formData();
     const files = formData.getAll("files");
