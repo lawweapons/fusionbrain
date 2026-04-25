@@ -5,6 +5,9 @@ import { requireBasicAuth } from "@/lib/auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+export async function GET(req: NextRequest) {
+  const unauth = requireBasicAuth(req);
+  if (unauth) return unauth;
   try {
     const totals = await db.query<{ source_type: string; count: string }>(
       `SELECT source_type, COUNT(*)::text AS count
