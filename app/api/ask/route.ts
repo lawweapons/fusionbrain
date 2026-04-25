@@ -8,12 +8,22 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const ALLOWED_IMG_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+type AllowedImgType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
 
 interface AskBody {
   question?: string;
   top_k?: number;
   filter_types?: string[];
-  image?: string; // data URL: data:image/png;base64,...
+  image?: string; // legacy single-image (data URL: data:image/png;base64,...)
+  images?: string[]; // multiple data URLs
+}
+
+function parseDataUrl(s: string): { base64: string; mediaType: AllowedImgType } | null {
+  if (!s.startsWith("data:")) return null;
+  const m = s.match(/^data:([^;]+);base64,(.+)$/);
+  if (!m) return null;
+  if (!ALLOWED_IMG_TYPES.has(m[1])) return null;
+  return { mediaType: m[1] as AllowedImgType, base64: m[2] };
 }
 
 export async function POST(req: NextRequest) {
@@ -68,7 +78,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Step 3: answer with intent-aware system prompt (walkthrough mode is more structured)
-    const ans = await answer(question, chunks, rewritten.intent, imagePayload);
+    const ans = await answer(question, chunks, rewritten.intent, imagePayloads);
 
     const citations = chunks.map((c, i) => ({
       n: i + 1,

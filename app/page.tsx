@@ -25,7 +25,7 @@ interface AssistantMessage {
 interface UserMessage {
   role: "user";
   content: string;
-  image?: string; // data URL (for display)
+  images?: string[]; // data URLs (for display)
 }
 type Message = UserMessage | AssistantMessage;
 
@@ -172,7 +172,7 @@ function renderAnswerWithRefs(text: string): React.ReactNode[] {
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [image, setImage] = useState<string | null>(null);
+  const [images, setImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [filterTypes, setFilterTypes] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -207,33 +207,50 @@ export default function Home() {
     setFilterTypes((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const item = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
-    if (!item) return;
-    const blob = item.getAsFile();
-    if (!blob) return;
-    e.preventDefault();
+  const addImageFromBlob = (blob: Blob) => {
     const reader = new FileReader();
-    reader.onload = () => setImage(reader.result as string);
+    reader.onload = () => {
+      const url = reader.result as string;
+      setImages((prev) => [...prev, url]);
+    };
     reader.readAsDataURL(blob);
+  };
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const imageItems = Array.from(e.clipboardData.items).filter((i) =>
+      i.type.startsWith("image/")
+    );
+    if (imageItems.length === 0) return;
+    e.preventDefault();
+    for (const item of imageItems) {
+      const blob = item.getAsFile();
+      if (blob) addImageFromBlob(blob);
+    }
   }, []);
 
-  const handleFile = (f: File | null) => {
-    if (!f || !f.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = () => setImage(reader.result as string);
-    reader.readAsDataURL(f);
+  const handleFiles = (files: FileList | null) => {
+    if (!files) return;
+    for (const f of Array.from(files)) {
+      if (f.type.startsWith("image/")) addImageFromBlob(f);
+    }
   };
+
+  const removeImage = (idx: number) =>
+    setImages((prev) => prev.filter((_, i) => i !== idx));
 
   const send = async () => {
     const q = input.trim();
     if (!q || loading) return;
 
-    const userMsg: UserMessage = { role: "user", content: q, image: image ?? undefined };
+    const userMsg: UserMessage = {
+      role: "user",
+      content: q,
+      images: images.length > 0 ? [...images] : undefined,
+    };
     setMessages((m) => [...m, userMsg]);
     setInput("");
-    const sentImage = image;
-    setImage(null);
+    const sentImages = images;
+    setImages([]);
     setLoading(true);
 
     try {
@@ -244,8 +261,8 @@ export default function Home() {
           question: q,
           top_k: 10,
           filter_types: filterTypes.length > 0 ? filterTypes : undefined,
-          image: sentImage ?? undefined
-        })
+          images: sentImages.length > 0 ? sentImages : undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
@@ -388,13 +405,22 @@ export default function Home() {
             m.role === "user" ? (
               <div key={i} className="flex justify-end">
                 <div className="max-w-[80%] bg-panel border border-border rounded-lg px-4 py-3">
-                  {m.image && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={m.image}
-                      alt="attached"
-                      className="max-h-48 rounded border border-border mb-2"
-                    />
+                  {m.images && m.images.length > 0 && (
+                    <div className="flex gap-2 flex-wrap mb-2">
+                      {m.images.map((img, ii) => (
+                        <div key={ii} className="relative">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={img}
+                            alt={`attached ${ii + 1}`}
+                            className="max-h-48 rounded border border-border"
+                          />
+                          <span className="absolute top-1 left-1 bg-bg/85 text-accent text-[10px] font-mono px-1 rounded">
+                            image {ii + 1}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   )}
                   <div className="whitespace-pre-wrap text-sm">{m.content}</div>
                 </div>
@@ -481,21 +507,33 @@ export default function Home() {
 
       <footer className="border-t border-border bg-surface px-6 py-4">
         <div className="max-w-3xl mx-auto">
-          {image && (
-            <div className="mb-2 flex items-center gap-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={image}
-                alt="preview"
-                className="h-16 rounded border border-border"
-              />
-              <button
-                type="button"
-                onClick={() => setImage(null)}
-                className="text-xs text-muted hover:text-text"
-              >
-                remove
-              </button>
+          {images.length > 0 && (
+            <div className="mb-2 flex items-start gap-2 flex-wrap">
+              {images.map((img, idx) => (
+                <div key={idx} className="relative group">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={img}
+                    alt={`preview ${idx + 1}`}
+                    className="h-20 rounded border border-border"
+                  />
+                  <span className="absolute top-1 left-1 bg-bg/85 text-accent text-[10px] font-mono px-1 rounded">
+                    image {idx + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeImage(idx)}
+                    className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-bg border border-border text-muted hover:text-text text-xs leading-none"
+                    title="remove"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <div className="text-[10px] text-muted self-center ml-1 max-w-[12rem]">
+                In your question you can refer to these as <span className="text-accent">image 1</span>,{" "}
+                <span className="text-accent">image 2</span>, etc.
+              </div>
             </div>
           )}
           <div className="flex gap-2 items-end">
@@ -506,17 +544,18 @@ export default function Home() {
               onKeyDown={onKeyDown}
               onPaste={handlePaste}
               rows={2}
-              placeholder="Ask about Fusion, CAM, or CNC — paste a Fusion screenshot with Ctrl+V"
+              placeholder="Ask about Fusion, CAM, or CNC — paste screenshots with Ctrl+V (multiple supported)"
               className="flex-1 bg-panel border border-border rounded-md px-3 py-2 text-sm resize-none focus:outline-none focus:border-accent"
               disabled={loading}
             />
-            <label className="cursor-pointer text-xs px-3 py-2 rounded-md border border-border bg-panel text-muted hover:text-text hover:border-accent">
+            <label className="cursor-pointer text-xs px-3 py-2 rounded-md border border-border bg-panel text-muted hover:text-text hover:border-accent" title="Attach image(s)">
               📎
               <input
                 type="file"
                 accept="image/*"
+                multiple
                 className="hidden"
-                onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => handleFiles(e.target.files)}
               />
             </label>
             <button

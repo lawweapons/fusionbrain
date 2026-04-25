@@ -118,11 +118,13 @@ function buildSystem(intent: Intent): string {
   return SYSTEM_BASE;
 }
 
+type AllowedImgType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+
 export async function answer(
   question: string,
   chunks: Chunk[],
   intent: Intent = "general",
-  image?: { base64: string; mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" }
+  images: { base64: string; mediaType: AllowedImgType }[] = []
 ): Promise<string> {
   const passages = chunks
     .map(
@@ -132,12 +134,19 @@ export async function answer(
     .join("\n\n");
 
   const userContent: Anthropic.ContentBlockParam[] = [];
-  if (image) {
+
+  // Each image gets a tiny "image N:" caption so the user can refer to them
+  // textually in their question (e.g. "in image 1, the part on the left...").
+  for (let i = 0; i < images.length; i++) {
+    if (images.length > 1) {
+      userContent.push({ type: "text", text: `Image ${i + 1}:` });
+    }
     userContent.push({
       type: "image",
-      source: { type: "base64", media_type: image.mediaType, data: image.base64 }
+      source: { type: "base64", media_type: images[i].mediaType, data: images[i].base64 }
     });
   }
+
   userContent.push({
     type: "text",
     text: `Passages:\n\n${passages}\n\n---\n\nQuestion: ${question}`
