@@ -40,6 +40,7 @@ export default function AdminPage() {
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<FileResult[]>([]);
   const [dragKind, setDragKind] = useState<string | null>(null);
+  const [machineTag, setMachineTag] = useState<string>("");
   const pdfInput = useRef<HTMLInputElement>(null);
   const mdInput = useRef<HTMLInputElement>(null);
   const fbInput = useRef<HTMLInputElement>(null);
@@ -109,6 +110,7 @@ export default function AdminPage() {
         const slab = arr.slice(i, i + HTTP_UPLOAD_BATCH);
         const fd = new FormData();
         for (const f of slab) fd.append("files", f);
+        if (machineTag.trim()) fd.append("machine", machineTag.trim());
         const res = await fetch("/api/admin/upload", { method: "POST", body: fd });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
@@ -183,6 +185,42 @@ export default function AdminPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-6 space-y-6">
+        {/* Machine tag — applies to every upload in this session */}
+        <section className="border border-border bg-surface rounded-lg p-5">
+          <h2 className="text-base font-semibold mb-1">🏷️ Tag this batch</h2>
+          <p className="text-sm text-muted mb-3">
+            Optional. When set, every file you upload gets <code className="text-accent">[Machine: ...]</code> prefixed
+            so the system knows which machine the data came from. Useful when ingesting NC programs or CAM exports
+            from your Mini Mill, VF-2, VF-4, ST-30, TL-1 etc. — keeps mini-mill values from being recommended for
+            a bigger machine without a caveat.
+          </p>
+          <div className="flex gap-2 items-center">
+            <label className="text-xs text-muted whitespace-nowrap">Machine:</label>
+            <input
+              type="text"
+              value={machineTag}
+              onChange={(e) => setMachineTag(e.target.value)}
+              placeholder="e.g. Haas VF-2  (leave blank for none)"
+              className="flex-1 bg-panel border border-border rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-accent"
+              maxLength={80}
+            />
+            {machineTag && (
+              <button
+                type="button"
+                onClick={() => setMachineTag("")}
+                className="text-xs text-muted hover:text-text px-2 py-1 rounded border border-border"
+              >
+                clear
+              </button>
+            )}
+          </div>
+          {machineTag && (
+            <div className="mt-2 text-xs text-accent">
+              Active: every uploaded file will be tagged as <strong>{machineTag}</strong>
+            </div>
+          )}
+        </section>
+
         {/* Stats panel */}
         <section className="border border-border bg-surface rounded-lg p-5">
           <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">
