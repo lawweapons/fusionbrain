@@ -45,6 +45,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "no files attached (form field 'files')" }, { status: 400 });
     }
 
+    // Optional machine tag — when set, prepended to every chunk's text and stored
+    // in metadata. Use case: "all these G-code files came off my Haas Mini Mill."
+    const machineRaw = formData.get("machine");
+    const machineTag =
+      typeof machineRaw === "string" && machineRaw.trim().length > 0
+        ? machineRaw.trim().slice(0, 80)
+        : null;
+
+    const tagChunks = <T extends { text: string; metadata?: Record<string, unknown> }>(
+      chunks: T[]
+    ): T[] => {
+      if (!machineTag) return chunks;
+      return chunks.map((c) => ({
+        ...c,
+        text: `[Machine: ${machineTag}] ${c.text}`,
+        metadata: { ...(c.metadata ?? {}), machine: machineTag },
+      }));
+    };
+
     const results: FileResult[] = [];
 
     for (const f of files) {
@@ -85,7 +104,7 @@ export async function POST(req: NextRequest) {
             source_type: "pdf",
             source_name: filename,
             source_url: null,
-            chunks,
+            chunks: tagChunks(chunks),
           });
           results.push({ filename, status: "ok", inserted_chunks });
         } else if (kind === "markdown") {
@@ -99,7 +118,7 @@ export async function POST(req: NextRequest) {
             source_type: "markdown",
             source_name: filename,
             source_url: null,
-            chunks,
+            chunks: tagChunks(chunks),
           });
           results.push({ filename, status: "ok", inserted_chunks });
         } else if (kind === "gcode") {
@@ -117,7 +136,7 @@ export async function POST(req: NextRequest) {
             source_type: "gcode",
             source_name: filename,
             source_url: null,
-            chunks,
+            chunks: tagChunks(chunks),
           });
           results.push({ filename, status: "ok", inserted_chunks });
         } else {
@@ -146,7 +165,7 @@ export async function POST(req: NextRequest) {
             source_type: "fusion_cam",
             source_name,
             source_url: null,
-            chunks,
+            chunks: tagChunks(chunks),
           });
           results.push({ filename, status: "ok", inserted_chunks });
         }
