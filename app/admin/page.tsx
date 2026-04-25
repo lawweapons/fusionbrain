@@ -176,12 +176,20 @@ export default function AdminPage() {
           </h1>
           <p className="text-xs text-muted">Add data to the knowledge base</p>
         </div>
-        <Link
-          href="/"
-          className="text-sm px-3 py-1.5 rounded-md border border-border bg-panel text-muted hover:text-text hover:border-accent"
-        >
-          ← Back to chat
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/admin/browse"
+            className="text-sm px-3 py-1.5 rounded-md border border-border bg-panel text-muted hover:text-text hover:border-accent"
+          >
+            🔍 Browse data
+          </Link>
+          <Link
+            href="/"
+            className="text-sm px-3 py-1.5 rounded-md border border-border bg-panel text-muted hover:text-text hover:border-accent"
+          >
+            ← Chat
+          </Link>
+        </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-6 space-y-6">
