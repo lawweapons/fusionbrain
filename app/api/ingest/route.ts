@@ -20,7 +20,9 @@ interface IngestBody {
   chunks: ChunkInput[];
 }
 
-const BATCH = 128;
+// Voyage caps batches at 120k tokens. Dense technical PDFs blow past this at 128 chunks.
+// 32 keeps us well under for ~500-word chunks (~650 tokens × 32 ≈ 21k tokens).
+const BATCH = 32;
 
 export async function POST(req: NextRequest) {
   const auth = req.headers.get("authorization");
