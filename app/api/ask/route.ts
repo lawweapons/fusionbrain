@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { retrieve } from "@/lib/retrieve";
 import { answer } from "@/lib/answer";
+import { rewriteQuery } from "@/lib/rewrite";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +42,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const chunks = await retrieve(question, topK, filterTypes);
+    // Step 1: rewrite the query (fix typos, expand abbreviations, detect intent + jobs)
+    const rewritten = await rewriteQuery(question);
+
+    // Step 2: hybrid retrieval — vector search + keyword search on detected job names
+    const chunks = await retrieve({
+      searchQuery: rewritten.search_query,
+      keywordTerms: rewritten.keyword_terms,
+      topK,
+      filterTypes,
+    });
 
     if (chunks.length === 0) {
       return NextResponse.json({
@@ -49,11 +59,13 @@ export async function POST(req: NextRequest) {
           "No passages found in the knowledge base. Either the question is outside scope, or the content hasn't been ingested yet.",
         citations: [],
         retrieved_chunk_ids: [],
-        latency_ms: Date.now() - t0
+        latency_ms: Date.now() - t0,
+        rewritten,
       });
     }
 
-    const ans = await answer(question, chunks, imagePayload);
+    // Step 3: answer with intent-aware system prompt (walkthrough mode is more structured)
+    const ans = await answer(question, chunks, rewritten.intent, imagePayload);
 
     const citations = chunks.map((c, i) => ({
       n: i + 1,
@@ -70,7 +82,8 @@ export async function POST(req: NextRequest) {
       answer: ans,
       citations,
       retrieved_chunk_ids: chunks.map((c) => c.id),
-      latency_ms: Date.now() - t0
+      latency_ms: Date.now() - t0,
+      rewritten,
     });
   } catch (e) {
     console.error("/api/ask error", e);
