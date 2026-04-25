@@ -253,6 +253,13 @@ export default function Home() {
     setImages([]);
     setLoading(true);
 
+    // Build conversation history (last 10 turns) for context
+    const history = messages.slice(-10).map((m) =>
+      m.role === "user"
+        ? { role: "user" as const, content: m.content, images: m.images }
+        : { role: "assistant" as const, content: m.content }
+    );
+
     try {
       const res = await fetch("/api/ask", {
         method: "POST",
@@ -262,6 +269,7 @@ export default function Home() {
           top_k: 10,
           filter_types: filterTypes.length > 0 ? filterTypes : undefined,
           images: sentImages.length > 0 ? sentImages : undefined,
+          history,
         }),
       });
       const data = await res.json();

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type Anthropic from "@anthropic-ai/sdk";
 import { retrieve } from "@/lib/retrieve";
 import { answer } from "@/lib/answer";
 import { rewriteQuery } from "@/lib/rewrite";
@@ -10,12 +11,19 @@ export const maxDuration = 60;
 const ALLOWED_IMG_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 type AllowedImgType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
 
+interface HistoryTurn {
+  role: "user" | "assistant";
+  content: string;
+  images?: string[];
+}
+
 interface AskBody {
   question?: string;
   top_k?: number;
   filter_types?: string[];
   image?: string; // legacy single-image (data URL: data:image/png;base64,...)
   images?: string[]; // multiple data URLs
+  history?: HistoryTurn[]; // prior conversation turns for context (oldest → newest)
 }
 
 function parseDataUrl(s: string): { base64: string; mediaType: AllowedImgType } | null {
@@ -54,8 +62,46 @@ export async function POST(req: NextRequest) {
       if (parsed) imagePayloads.push(parsed);
     }
 
+    // Build prior-turn messages for Claude. The latest user turn (passages +
+    // images + question) is appended later inside answer().
+    const historyMessages: Anthropic.MessageParam[] = [];
+    if (Array.isArray(body.history)) {
+      for (const turn of body.history) {
+        if (!turn || (turn.role !== "user" && turn.role !== "assistant")) continue;
+        if (turn.role === "user") {
+          const content: Anthropic.ContentBlockParam[] = [];
+          if (Array.isArray(turn.images)) {
+            for (let i = 0; i < turn.images.length; i++) {
+              const parsed = parseDataUrl(turn.images[i]);
+              if (parsed) {
+                if (turn.images.length > 1) {
+                  content.push({ type: "text", text: `Image ${i + 1}:` });
+                }
+                content.push({
+                  type: "image",
+                  source: { type: "base64", media_type: parsed.mediaType, data: parsed.base64 },
+                });
+              }
+            }
+          }
+          if (turn.content) content.push({ type: "text", text: turn.content });
+          if (content.length > 0) historyMessages.push({ role: "user", content });
+        } else if (turn.content) {
+          historyMessages.push({ role: "assistant", content: turn.content });
+        }
+      }
+    }
+
+    // For follow-up questions, augment the search query with the last user turn
+    // so retrieval can find context for ambiguous references like "the other one".
+    const lastUserTurn = body.history?.slice().reverse().find((t) => t.role === "user");
+    const searchInput =
+      historyMessages.length > 0 && lastUserTurn?.content
+        ? `${lastUserTurn.content}\n\n${question}`
+        : question;
+
     // Step 1: rewrite the query (fix typos, expand abbreviations, detect intent + jobs)
-    const rewritten = await rewriteQuery(question);
+    const rewritten = await rewriteQuery(searchInput);
 
     // Walkthroughs benefit from more context (specific job + general theory blends well)
     const effectiveTopK = rewritten.intent === "walkthrough" ? Math.max(topK, 18) : topK;
@@ -80,7 +126,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Step 3: answer with intent-aware system prompt (walkthrough mode is more structured)
-    const ans = await answer(question, chunks, rewritten.intent, imagePayloads);
+    const ans = await answer(question, chunks, rewritten.intent, imagePayloads, historyMessages);
 
     const citations = chunks.map((c, i) => ({
       n: i + 1,

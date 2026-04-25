@@ -124,7 +124,8 @@ export async function answer(
   question: string,
   chunks: Chunk[],
   intent: Intent = "general",
-  images: { base64: string; mediaType: AllowedImgType }[] = []
+  images: { base64: string; mediaType: AllowedImgType }[] = [],
+  history: Anthropic.MessageParam[] = []
 ): Promise<string> {
   const passages = chunks
     .map(
@@ -157,7 +158,7 @@ export async function answer(
     max_tokens: intent === "walkthrough" ? 4000 : 1500,
     temperature: 0.2,
     system: buildSystem(intent),
-    messages: [{ role: "user", content: userContent }]
+    messages: [...history, { role: "user", content: userContent }]
   });
 
   return resp.content
