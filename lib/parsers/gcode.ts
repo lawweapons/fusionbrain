@@ -38,6 +38,77 @@ function newOp(index: number): Operation {
   };
 }
 
+interface Extents {
+  x: [number, number] | null;
+  y: [number, number] | null;
+  z: [number, number] | null;
+}
+
+function emptyExt(): { min: number; max: number } {
+  return { min: Infinity, max: -Infinity };
+}
+
+function packExt(e: { min: number; max: number }): [number, number] | null {
+  return Number.isFinite(e.min) ? [e.min, e.max] : null;
+}
+
+const G_CODE_RE_GLOBAL = /\bG(\d+)\b/g;
+const X_NUM_RE = /\bX(-?\d+(?:\.\d+)?)/;
+const Y_NUM_RE = /\bY(-?\d+(?:\.\d+)?)/;
+const Z_NUM_RE = /\bZ(-?\d+(?:\.\d+)?)/;
+
+function computeExtents(lines: string[]): { all: Extents; cutting: Extents } {
+  const all = { x: emptyExt(), y: emptyExt(), z: emptyExt() };
+  const cut = { x: emptyExt(), y: emptyExt(), z: emptyExt() };
+  let modal: "rapid" | "cut" | null = null;
+
+  for (const line of lines) {
+    // Update modal state from any motion G-codes on this line
+    for (const m of line.matchAll(G_CODE_RE_GLOBAL)) {
+      const code = parseInt(m[1], 10);
+      if (code === 0) modal = "rapid";
+      else if (code === 1 || code === 2 || code === 3) modal = "cut";
+      // other G codes (17/40/53/54/90/94 etc.) don't change motion modal here
+    }
+
+    const xm = line.match(X_NUM_RE);
+    const ym = line.match(Y_NUM_RE);
+    const zm = line.match(Z_NUM_RE);
+    if (xm) {
+      const v = parseFloat(xm[1]);
+      all.x.min = Math.min(all.x.min, v);
+      all.x.max = Math.max(all.x.max, v);
+      if (modal === "cut") {
+        cut.x.min = Math.min(cut.x.min, v);
+        cut.x.max = Math.max(cut.x.max, v);
+      }
+    }
+    if (ym) {
+      const v = parseFloat(ym[1]);
+      all.y.min = Math.min(all.y.min, v);
+      all.y.max = Math.max(all.y.max, v);
+      if (modal === "cut") {
+        cut.y.min = Math.min(cut.y.min, v);
+        cut.y.max = Math.max(cut.y.max, v);
+      }
+    }
+    if (zm) {
+      const v = parseFloat(zm[1]);
+      all.z.min = Math.min(all.z.min, v);
+      all.z.max = Math.max(all.z.max, v);
+      if (modal === "cut") {
+        cut.z.min = Math.min(cut.z.min, v);
+        cut.z.max = Math.max(cut.z.max, v);
+      }
+    }
+  }
+
+  return {
+    all: { x: packExt(all.x), y: packExt(all.y), z: packExt(all.z) },
+    cutting: { x: packExt(cut.x), y: packExt(cut.y), z: packExt(cut.z) },
+  };
+}
+
 function commitOp(op: Operation): Operation {
   // Promote a recent comment to op name if not already set
   if (!op.name) {
@@ -135,7 +206,13 @@ export function parseGcode(text: string, filename: string): {
   return { operations: ops, total_lines: rawLines.length };
 }
 
-function renderOperation(op: Operation, filename: string): string {
+function fmtExt(e: [number, number] | null): string {
+  if (!e) return "(none)";
+  const span = e[1] - e[0];
+  return `${e[0].toFixed(4)} to ${e[1].toFixed(4)}  (span ${span.toFixed(4)})`;
+}
+
+function renderOperation(op: Operation, filename: string, ext: { all: Extents; cutting: Extents }): string {
   const head = `[G-code: ${filename} / Operation: ${op.name ?? `Block ${op.index + 1}`}]`;
   const lines: string[] = [head, ""];
 
@@ -144,6 +221,29 @@ function renderOperation(op: Operation, filename: string): string {
   }
   if (op.rpm) lines.push(`Spindle: ${op.rpm} RPM`);
   if (op.feed) lines.push(`Cutting feed: F${op.feed}`);
+
+  // Spatial envelope — coordinates are in the active WCS (G54/G55/etc.)
+  // i.e. relative to where the operator probed work zero.
+  const hasCut =
+    ext.cutting.x !== null || ext.cutting.y !== null || ext.cutting.z !== null;
+  const hasAll =
+    ext.all.x !== null || ext.all.y !== null || ext.all.z !== null;
+  if (hasCut || hasAll) {
+    lines.push("");
+    lines.push("Toolpath envelope (in active WCS — values are distances from probed work zero):");
+    if (hasCut) {
+      lines.push("  Cutting moves only (G1/G2/G3, excludes rapid traverse):");
+      lines.push(`    X: ${fmtExt(ext.cutting.x)}`);
+      lines.push(`    Y: ${fmtExt(ext.cutting.y)}`);
+      lines.push(`    Z: ${fmtExt(ext.cutting.z)}`);
+    }
+    if (hasAll) {
+      lines.push("  All moves (incl. rapids):");
+      lines.push(`    X: ${fmtExt(ext.all.x)}`);
+      lines.push(`    Y: ${fmtExt(ext.all.y)}`);
+      lines.push(`    Z: ${fmtExt(ext.all.z)}`);
+    }
+  }
 
   if (op.comments.length > 0) {
     lines.push("");
@@ -182,9 +282,10 @@ export function parseGcodeToChunks(text: string, filename: string): {
 
   for (const op of operations) {
     const opName = op.name ?? `Block ${op.index + 1}`;
+    const ext = computeExtents(op.raw_lines);
     chunks.push({
       chunk_index: chunks.length,
-      text: renderOperation(op, filename),
+      text: renderOperation(op, filename, ext),
       source_ref: opName,
       metadata: {
         operation_index: op.index,
@@ -194,6 +295,12 @@ export function parseGcodeToChunks(text: string, filename: string): {
         spindle_rpm: op.rpm,
         cutting_feed: op.feed,
         line_count: op.raw_lines.length,
+        x_cutting: ext.cutting.x,
+        y_cutting: ext.cutting.y,
+        z_cutting: ext.cutting.z,
+        x_all: ext.all.x,
+        y_all: ext.all.y,
+        z_all: ext.all.z,
       },
     });
   }
