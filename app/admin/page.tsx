@@ -21,10 +21,22 @@ const SOURCE_LABEL: Record<string, string> = {
   gcode: "G-code (machine)",
   pdf: "PDF",
   markdown: "Markdown",
+  webpage: "Web page",
   youtube: "YouTube",
   fusion_docs: "Autodesk Docs",
   json: "Generic JSON",
 };
+
+interface UrlIngestResult {
+  ok: boolean;
+  kind?: "pdf" | "webpage";
+  source_name?: string;
+  source_url?: string;
+  page_count?: number;
+  extracted_chars?: number;
+  inserted_chunks?: number;
+  error?: string;
+}
 
 function fmtDate(s: string): string {
   try {
@@ -45,6 +57,48 @@ export default function AdminPage() {
   const mdInput = useRef<HTMLInputElement>(null);
   const fbInput = useRef<HTMLInputElement>(null);
   const gcodeInput = useRef<HTMLInputElement>(null);
+
+  // URL ingest state
+  const [urlInput, setUrlInput] = useState<string>("");
+  const [urlSourceName, setUrlSourceName] = useState<string>("");
+  const [urlBusy, setUrlBusy] = useState<boolean>(false);
+  const [urlResults, setUrlResults] = useState<UrlIngestResult[]>([]);
+
+  const handleUrlIngest = async () => {
+    const url = urlInput.trim();
+    if (!url) return;
+    setUrlBusy(true);
+    try {
+      const res = await fetch("/api/admin/ingest-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url,
+          source_name: urlSourceName.trim() || undefined,
+          machine: machineTag.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setUrlResults((prev) => [
+          { ok: false, source_url: url, error: data.error ?? `HTTP ${res.status}` },
+          ...prev,
+        ]);
+      } else {
+        setUrlResults((prev) => [{ ok: true, ...data }, ...prev]);
+        setUrlInput("");
+        setUrlSourceName("");
+        await refreshStats();
+      }
+    } catch (e) {
+      setUrlResults((prev) => [
+        { ok: false, source_url: url, error: (e as Error).message },
+        ...prev,
+      ]);
+    } finally {
+      setUrlBusy(false);
+    }
+  };
 
   const refreshStats = useCallback(async () => {
     try {
@@ -226,6 +280,73 @@ export default function AdminPage() {
             <div className="mt-2 text-xs text-accent">
               Active: every uploaded file will be tagged as <strong>{machineTag}</strong>
             </div>
+          )}
+        </section>
+
+        {/* URL ingest */}
+        <section className="border border-border bg-surface rounded-lg p-5">
+          <h2 className="text-base font-semibold mb-1">🔗 Add from URL</h2>
+          <p className="text-sm text-muted mb-3">
+            Paste a link to a PDF or webpage. PDFs are downloaded and parsed page-by-page.
+            Webpages are fetched and stripped to readable text. JS-heavy SPAs (like Autodesk
+            help) may return an empty shell — for those, save the page locally and upload as
+            Markdown instead.
+          </p>
+          <div className="space-y-2">
+            <input
+              type="url"
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              placeholder="https://example.com/handout.pdf  or  https://example.com/article"
+              className="w-full bg-panel border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-accent"
+              disabled={urlBusy}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleUrlIngest();
+                }
+              }}
+            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={urlSourceName}
+                onChange={(e) => setUrlSourceName(e.target.value)}
+                placeholder="Optional source name (defaults to filename)"
+                className="flex-1 bg-panel border border-border rounded-md px-3 py-1.5 text-xs focus:outline-none focus:border-accent"
+                disabled={urlBusy}
+                maxLength={200}
+              />
+              <button
+                type="button"
+                onClick={handleUrlIngest}
+                disabled={urlBusy || !urlInput.trim()}
+                className="text-sm px-4 py-1.5 rounded-md border border-accent bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {urlBusy ? "Fetching…" : "Ingest URL"}
+              </button>
+            </div>
+          </div>
+          {urlResults.length > 0 && (
+            <ul className="mt-3 space-y-1 text-xs">
+              {urlResults.map((r, i) => (
+                <li
+                  key={i}
+                  className="flex justify-between gap-3 py-1 border-b border-border/50 last:border-0"
+                >
+                  <span className="truncate flex-1">
+                    {r.ok ? <span className="text-green-500">✓</span> : <span className="text-red-500">✗</span>}{" "}
+                    <span className="text-muted">{r.source_url}</span>{" "}
+                    {r.ok && r.source_name && <span>→ {r.source_name}</span>}
+                  </span>
+                  <span className="text-muted whitespace-nowrap">
+                    {r.ok
+                      ? `${r.kind === "pdf" ? `${r.page_count}p · ` : ""}${r.inserted_chunks} chunks`
+                      : `error — ${r.error}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
         </section>
 
