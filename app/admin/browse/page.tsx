@@ -24,10 +24,12 @@ interface Facets {
 }
 
 const SOURCE_LABEL: Record<string, string> = {
+  cam_recipe: "CAM Recipe",
   fusion_cam: "Fusion CAM",
   gcode: "G-code",
   pdf: "PDF",
   markdown: "Markdown",
+  webpage: "Web page",
   youtube: "YouTube",
   fusion_docs: "Autodesk Docs",
 };

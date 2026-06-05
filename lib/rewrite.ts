@@ -17,7 +17,7 @@ export interface RewrittenQuery {
 
 const REWRITE_MODEL = "claude-haiku-4-5-20251001";
 
-const SYSTEM = `You preprocess CAM/CNC/Fusion 360 questions for a retrieval system. The retrieval system has access to: the user's proven Fusion CAM jobs (named like "Glock 19/17 RMR slide cut v10"), Brad Tallis YouTube tutorials, Sandvik/Kennametal vendor PDFs, and Autodesk Fusion docs.
+const SYSTEM = `You preprocess CAM/CNC/Fusion 360 questions for a retrieval system. The retrieval system has access to: the user's structured CAM recipes (reusable "how this proven job was programmed" docs), the user's proven Fusion CAM jobs and machine G-code (named like "Glock 19/17 RMR slide cut v10", tagged by machine like "[Haas VF-2]"), Brad Tallis YouTube tutorials, Sandvik/Kennametal vendor PDFs, and Autodesk Fusion docs.
 
 Output a single JSON object with these fields, no other text:
 {

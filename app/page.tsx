@@ -30,6 +30,7 @@ interface UserMessage {
 type Message = UserMessage | AssistantMessage;
 
 const SOURCE_FILTERS: { id: string; label: string }[] = [
+  { id: "cam_recipe", label: "CAM Recipes" },
   { id: "fusion_cam", label: "My Fusion CAM" },
   { id: "gcode", label: "G-code (machine)" },
   { id: "youtube", label: "YouTube" },

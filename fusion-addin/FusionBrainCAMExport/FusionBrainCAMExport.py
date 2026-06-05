@@ -54,9 +54,14 @@ def _safe_param_dict(parameters_collection):
             except Exception:
                 pass
             try:
-                v = p.value
-                if v is not None:
-                    entry["value"] = v
+                # p.value is a CAMParameterValue object; the scalar lives at
+                # p.value.value. Capturing p.value directly serializes to a
+                # useless class repr ("<class 'adsk.cam.FloatParameterValue'>"),
+                # so unwrap it and only keep JSON-safe primitives.
+                pv = p.value
+                scalar = getattr(pv, "value", pv)
+                if isinstance(scalar, (int, float, bool, str)):
+                    entry["value"] = scalar
             except Exception:
                 pass
             try:
