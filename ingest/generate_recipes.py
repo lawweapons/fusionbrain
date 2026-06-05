@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -29,6 +30,7 @@ def main() -> int:
     ap.add_argument("--dir", default=str(DEFAULT_DIR), help="folder of .fb.json exports")
     ap.add_argument("--only", default=None, help="only process files whose name contains this substring")
     ap.add_argument("--machine", default=None, help="optional machine tag for these recipes")
+    ap.add_argument("--delay", type=float, default=8.0, help="seconds between files (rate-limit cushion)")
     args = ap.parse_args()
 
     src = Path(args.dir)
@@ -46,7 +48,7 @@ def main() -> int:
 
     print(f"Generating recipes for {len(files)} file(s)\n")
     ok = skipped = errored = 0
-    for f in files:
+    for idx, f in enumerate(files):
         print(f"▶ {f.name}")
         try:
             with open(f, "rb") as fh:
@@ -57,7 +59,7 @@ def main() -> int:
                     auth=AUTH,
                     files=form,
                     data=data,
-                    timeout=300,
+                    timeout=600,
                 )
             if r.status_code == 422:
                 print(f"  ⊘ skipped — {r.json().get('error', 'no operations')}")
@@ -79,6 +81,9 @@ def main() -> int:
         except Exception as e:
             print(f"  ✗ error: {e}")
             errored += 1
+        # Rate-limit cushion between files (skip after the last one)
+        if idx < len(files) - 1 and args.delay > 0:
+            time.sleep(args.delay)
 
     print(f"\nDone. {ok} recipes generated, {skipped} skipped (no ops), {errored} errored.")
     return 0

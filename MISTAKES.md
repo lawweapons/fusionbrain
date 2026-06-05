@@ -78,6 +78,18 @@ and remove the `PIDFile=` line. `pm2 resurrect` is a bootstrap that exits after 
 
 **Fix:** run `pm2 startup systemd -u fusionbrain --hp /home/fusionbrain`, then patch the unit per #9, then `pm2 save` so dump.pm2 captures the current process list.
 
+### 12. PM2 carried a placeholder `BASIC_AUTH_PASS=recovery` after an emergency restart; `.env` and the live process diverged
+**Symptom:** All `/api/admin/*` endpoints (which auth in-handler via `requireBasicAuth`) returned 401 with the real password, but `robert:recovery` succeeded. Ingest scripts using the strong password broke; the chat (gated by middleware reading the same var) would also have been affected.
+
+**Root cause:** during an earlier recovery the VPS `.env` `BASIC_AUTH_PASS` was set to `recovery` and `pm2 save` baked it into `dump.pm2`. `pm2 restart` (without `--update-env`) reuses the saved process env, so re-sourcing `.env` had no effect — the process kept serving `recovery`.
+
+**Fix:**
+1. Correct the value in `~/app/.env` (`sed -i 's|^BASIC_AUTH_PASS=.*|BASIC_AUTH_PASS=<real>|' .env`).
+2. Restart **with** env reload: `set -a && source .env && set +a && pm2 restart fusionbrain-api --update-env`.
+3. `pm2 save` so `dump.pm2` captures the corrected env.
+
+**Rule:** after ANY `.env` change, always `pm2 restart --update-env` then `pm2 save`. A plain `pm2 restart` silently serves stale secrets. To audit the live process env: `pm2 env 0 | grep BASIC_AUTH`.
+
 ## Claude Code MCP
 
 ### 11. `/mcp` in Claude Code opens the Anthropic Connectors directory, not custom-MCP auth
